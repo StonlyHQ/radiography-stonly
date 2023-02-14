@@ -43,6 +43,8 @@ public sealed class ScannableView {
     override val displayName: String,
     public val width: Int,
     public val height: Int,
+    public val left: Int,
+    public val top: Int,
     public val modifiers: List<Modifier>,
     override val children: Sequence<ScannableView>
   ) : ScannableView() {
@@ -92,6 +94,8 @@ internal fun ComposeLayoutInfo.toScannableView(): ScannableView = when (val layo
     // Can't use width and height properties because we're not targeting 1.8 bytecode.
     width = layoutInfo.bounds.run { right - left },
     height = layoutInfo.bounds.run { bottom - top },
+    left = layoutInfo.bounds.run { left },
+    top = layoutInfo.bounds.run { top },
     modifiers = layoutInfo.modifiers,
     children = layoutInfo.children.map(ComposeLayoutInfo::toScannableView)
   )
@@ -99,6 +103,8 @@ internal fun ComposeLayoutInfo.toScannableView(): ScannableView = when (val layo
     displayName = layoutInfo.name,
     width = layoutInfo.bounds.run { right - left },
     height = layoutInfo.bounds.run { bottom - top },
+    left = layoutInfo.bounds.run { left },
+    top = layoutInfo.bounds.run { top },
     children = layoutInfo.children.map(ComposeLayoutInfo::toScannableView),
     modifiers = emptyList()
   )
