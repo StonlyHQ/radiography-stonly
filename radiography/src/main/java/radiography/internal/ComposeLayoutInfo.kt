@@ -1,20 +1,20 @@
 @file:OptIn(UiToolingDataApi::class)
+
 package radiography.internal
 
+import android.util.Log
 import android.view.View
 import android.view.ViewGroup
 import androidx.compose.runtime.InternalComposeApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ModifierInfo
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.node.Ref
-import androidx.compose.ui.tooling.data.CallGroup
-import androidx.compose.ui.tooling.data.Group
-import androidx.compose.ui.tooling.data.NodeGroup
-import androidx.compose.ui.tooling.data.UiToolingDataApi
-import androidx.compose.ui.tooling.data.asTree
+import androidx.compose.ui.tooling.data.*
 import androidx.compose.ui.unit.IntRect
-import radiography.internal.ComposeLayoutInfo.AndroidViewInfo
-import radiography.internal.ComposeLayoutInfo.LayoutNodeInfo
-import radiography.internal.ComposeLayoutInfo.SubcompositionInfo
+import radiography.internal.ComposeLayoutInfo.*
 
 /**
  * Information about a Compose `LayoutNode`, extracted from a [Group] tree via [Group.layoutInfos].
@@ -26,23 +26,23 @@ import radiography.internal.ComposeLayoutInfo.SubcompositionInfo
  * It's also helpful since we actually gather data from multiple Groups for a single LayoutInfo,
  * so parsing them ahead of time into these objects means the visitor can be stateless.
  */
-internal sealed class ComposeLayoutInfo {
-  data class LayoutNodeInfo(
-    val name: String,
-    val bounds: IntRect,
-    val modifiers: List<Modifier>,
-    val children: Sequence<ComposeLayoutInfo>,
-  ) : ComposeLayoutInfo()
+public sealed class ComposeLayoutInfo {
+    public data class LayoutNodeInfo(
+        val name: String,
+        val bounds: IntRect,
+        val modifiers: List<Modifier>,
+        val children: Sequence<ComposeLayoutInfo>,
+    ) : ComposeLayoutInfo()
 
-  data class SubcompositionInfo(
-    val name: String,
-    val bounds: IntRect,
-    val children: Sequence<ComposeLayoutInfo>
-  ) : ComposeLayoutInfo()
+    public data class SubcompositionInfo(
+        val name: String,
+        val bounds: IntRect,
+        val children: Sequence<ComposeLayoutInfo>
+    ) : ComposeLayoutInfo()
 
-  data class AndroidViewInfo(
-    val view: View
-  ) : ComposeLayoutInfo()
+    public data class AndroidViewInfo(
+        val view: View
+    ) : ComposeLayoutInfo()
 }
 
 /**
@@ -63,39 +63,60 @@ internal val Group.layoutInfos: Sequence<ComposeLayoutInfo> get() = computeLayou
  * [NodeGroup] values.
  */
 private fun Group.computeLayoutInfos(
-  parentName: String = ""
+    parentName: String = ""
 ): Sequence<ComposeLayoutInfo> {
-  val name = parentName.ifBlank { this.name }.orEmpty()
-  // Things that we want to consider children of the current node, but aren't actually child nodes
-  // as reported by Group.children.
-  val irregularChildren = subComposedChildren(name) + androidViewChildren()
+    val name = parentName.ifBlank { this.name }.orEmpty()
+    // Things that we want to consider children of the current node, but aren't actually child nodes
+    // as reported by Group.children.
+    val irregularChildren = subComposedChildren(name) + androidViewChildren()
 
-  // Certain composables produce an internal structure that is hard to read if we report it exactly.
-  // Instead, we use heuristics to recognize subtrees that match certain expected structures and
-  // aggregate them somewhat before reporting.
-  tryParseSubcomposition(name, irregularChildren)
-    ?.let { return it }
-  tryParseAndroidView(name, irregularChildren)
-    ?.let { return it }
+    // Certain composables produce an internal structure that is hard to read if we report it exactly.
+    // Instead, we use heuristics to recognize subtrees that match certain expected structures and
+    // aggregate them somewhat before reporting.
+    tryParseSubcomposition(name, irregularChildren)
+        ?.let { return it }
+    tryParseAndroidView(name, irregularChildren)
+        ?.let { return it }
 
-  // This is an intermediate group that doesn't represent a LayoutNode, so we flatten by just
-  // reporting its children without reporting a new subtree.
-  if (this !is NodeGroup) {
-    return children.asSequence()
-      .flatMap { it.computeLayoutInfos(name) } + irregularChildren
-  }
+    // This is an intermediate group that doesn't represent a LayoutNode, so we flatten by just
+    // reporting its children without reporting a new subtree.
+    if (this !is NodeGroup) {
+        return children.asSequence()
+            .flatMap { it.computeLayoutInfos(name) } + irregularChildren
+    }
 
-  val children = children.asSequence()
-    // This node will "consume" the name, so reset it name to empty for children.
-    .flatMap { it.computeLayoutInfos() }
+    val children = children.asSequence()
+        // This node will "consume" the name, so reset it name to empty for children.
+        .flatMap { it.computeLayoutInfos() }
 
-  val layoutInfo = LayoutNodeInfo(
-    name = name,
-    bounds = box,
-    modifiers = modifierInfo.map { it.modifier },
-    children = children + irregularChildren,
-  )
-  return sequenceOf(layoutInfo)
+    val layoutInfo = LayoutNodeInfo(
+        name = name,
+        bounds = box,
+        modifiers = tranformModifiers(modifierInfo),
+        children = children + irregularChildren,
+    )
+    return sequenceOf(layoutInfo)
+}
+
+public fun tranformModifiers(modifierInfo: List<ModifierInfo>): List<Modifier> {
+    val list = mutableListOf<Modifier>()
+    list.addAll(modifierInfo.map { it.modifier })
+//    list.add(onGloballyPositioned)
+    return list
+}
+
+public val onGloballyPositioned: Modifier = Modifier.onGloballyPositioned { coordinates ->
+    Log.d("Stonly", "onGloballyPositioned VALUE: $coordinates")
+    // This will be the size of the Column.
+    coordinates.size
+    // The position of the Column relative to the application window.
+    coordinates.positionInWindow()
+    // The position of the Column relative to the Compose root.
+    coordinates.positionInRoot()
+    // These will be the alignment lines provided to the layout (empty here for Column).
+    coordinates.providedAlignmentLines
+    // This will be a LayoutCoordinates instance corresponding to the parent of Column.
+    coordinates.parentLayoutCoordinates
 }
 
 /**
@@ -106,15 +127,15 @@ private fun Group.computeLayoutInfos(
  */
 @OptIn(InternalComposeApi::class)
 private fun Group.subComposedChildren(name: String): Sequence<SubcompositionInfo> =
-  getCompositionContexts()
-    .flatMap { it.tryGetComposers().asSequence() }
-    .map { subcomposer ->
-      SubcompositionInfo(
-        name = name,
-        bounds = box,
-        children = subcomposer.compositionData.asTree().layoutInfos
-      )
-    }
+    getCompositionContexts()
+        .flatMap { it.tryGetComposers().asSequence() }
+        .map { subcomposer ->
+            SubcompositionInfo(
+                name = name,
+                bounds = box,
+                children = subcomposer.compositionData.asTree().layoutInfos
+            )
+        }
 
 /**
  * The `AndroidView` composable remembers a [Ref] to a special internal subclass of [ViewGroup] that
@@ -126,12 +147,12 @@ private fun Group.subComposedChildren(name: String): Sequence<SubcompositionInfo
  * a number of reasons though, so we don't try to ignore those cases.
  */
 private fun Group.androidViewChildren(): List<AndroidViewInfo> = data.mapNotNull { datum ->
-  (datum as? Ref<*>)
-    ?.value
-    // The concrete type is actually an internal ViewGroup subclass that has all the wiring, but
-    // ultimately it's still just a ViewGroup so this simple check works.
-    ?.let { it as? ViewGroup }
-    ?.let(::AndroidViewInfo)
+    (datum as? Ref<*>)
+        ?.value
+        // The concrete type is actually an internal ViewGroup subclass that has all the wiring, but
+        // ultimately it's still just a ViewGroup so this simple check works.
+        ?.let { it as? ViewGroup }
+        ?.let(::AndroidViewInfo)
 }
 
 /**
@@ -151,35 +172,35 @@ private fun Group.androidViewChildren(): List<AndroidViewInfo> = data.mapNotNull
  * - That LayoutNode has no children of its own.
  */
 private fun Group.tryParseSubcomposition(
-  name: String,
-  irregularChildren: Sequence<ComposeLayoutInfo>
+    name: String,
+    irregularChildren: Sequence<ComposeLayoutInfo>
 ): Sequence<ComposeLayoutInfo>? {
-  if (this.name != "SubcomposeLayout") return null
+    if (this.name != "SubcomposeLayout") return null
 
-  val (subcompositions, regularChildren) =
-    (children.asSequence().flatMap { it.computeLayoutInfos(name) } + irregularChildren)
-      .partition { it is SubcompositionInfo }
-      .let {
-        // There's no type-safe partition operator so we just cast.
-        @Suppress("UNCHECKED_CAST")
-        it as Pair<List<SubcompositionInfo>, List<ComposeLayoutInfo>>
-      }
+    val (subcompositions, regularChildren) =
+        (children.asSequence().flatMap { it.computeLayoutInfos(name) } + irregularChildren)
+            .partition { it is SubcompositionInfo }
+            .let {
+                // There's no type-safe partition operator so we just cast.
+                @Suppress("UNCHECKED_CAST")
+                it as Pair<List<SubcompositionInfo>, List<ComposeLayoutInfo>>
+            }
 
-  if (subcompositions.isEmpty()) return null
-  if (regularChildren.size != 1) return null
+    if (subcompositions.isEmpty()) return null
+    if (regularChildren.size != 1) return null
 
-  val mainNode = regularChildren.single()
-  if (mainNode !is LayoutNodeInfo) return null
-  if (!mainNode.children.isEmpty()) return null
+    val mainNode = regularChildren.single()
+    if (mainNode !is LayoutNodeInfo) return null
+    if (!mainNode.children.isEmpty()) return null
 
-  // We can be pretty confident at this point that this is an actual SubcomposeLayout, so
-  // expose its layout node as the parent of all its subcompositions.
-  val subcompositionName = "<subcomposition of ${mainNode.name}>"
-  return sequenceOf(
-    mainNode.copy(children = subcompositions.asSequence()
-      .map { it.copy(name = subcompositionName) }
+    // We can be pretty confident at this point that this is an actual SubcomposeLayout, so
+    // expose its layout node as the parent of all its subcompositions.
+    val subcompositionName = "<subcomposition of ${mainNode.name}>"
+    return sequenceOf(
+        mainNode.copy(children = subcompositions.asSequence()
+            .map { it.copy(name = subcompositionName) }
+        )
     )
-  )
 }
 
 /**
@@ -205,30 +226,30 @@ private fun Group.tryParseSubcomposition(
  * the logic of both if that happens if they're completely independent.
  */
 private fun Group.tryParseAndroidView(
-  name: String,
-  irregularChildren: Sequence<ComposeLayoutInfo>
+    name: String,
+    irregularChildren: Sequence<ComposeLayoutInfo>
 ): Sequence<ComposeLayoutInfo>? {
-  if (this.name != "AndroidView") return null
-  if (this !is CallGroup) return null
+    if (this.name != "AndroidView") return null
+    if (this !is CallGroup) return null
 
-  val (androidViews, regularChildren) =
-    (children.asSequence().flatMap { it.computeLayoutInfos(name) } + irregularChildren)
-      .partition { it is AndroidViewInfo }
-      .let {
-        // There's no type-safe partition operator so we just cast.
-        @Suppress("UNCHECKED_CAST")
-        it as Pair<List<AndroidViewInfo>, List<ComposeLayoutInfo>>
-      }
+    val (androidViews, regularChildren) =
+        (children.asSequence().flatMap { it.computeLayoutInfos(name) } + irregularChildren)
+            .partition { it is AndroidViewInfo }
+            .let {
+                // There's no type-safe partition operator so we just cast.
+                @Suppress("UNCHECKED_CAST")
+                it as Pair<List<AndroidViewInfo>, List<ComposeLayoutInfo>>
+            }
 
-  if (androidViews.isEmpty()) return null
-  if (regularChildren.size != 1) return null
+    if (androidViews.isEmpty()) return null
+    if (regularChildren.size != 1) return null
 
-  val mainNode = regularChildren.single()
-  if (mainNode !is LayoutNodeInfo) return null
+    val mainNode = regularChildren.single()
+    if (mainNode !is LayoutNodeInfo) return null
 
-  // We can be pretty confident at this point that this is an actual AndroidView composable,
-  // so expose its layout node as the parent of its actual view.
-  return sequenceOf(mainNode.copy(children = mainNode.children + androidViews))
+    // We can be pretty confident at this point that this is an actual AndroidView composable,
+    // so expose its layout node as the parent of its actual view.
+    return sequenceOf(mainNode.copy(children = mainNode.children + androidViews))
 }
 
 private fun Sequence<*>.isEmpty(): Boolean = !iterator().hasNext()

@@ -18,7 +18,7 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 plugins {
   id("com.android.library")
   kotlin("android")
-  id("com.vanniktech.maven.publish")
+//  id("com.vanniktech.maven.publish")
 }
 
 android {
@@ -61,20 +61,20 @@ tasks.withType<KotlinCompile> {
 }
 
 dependencies {
-  implementation(Dependencies.Curtains)
+  implementation("com.squareup.curtains:curtains:1.2.2")
   // We don't want to bring any Compose dependencies in unless the consumer of this library is
   // bringing them in itself.
-  compileOnly(Dependencies.Compose().ToolingData)
+  compileOnly("androidx.compose.ui:ui-tooling-data:1.0.1")
 
-  testImplementation(Dependencies.JUnit)
-  testImplementation(Dependencies.Mockito)
-  testImplementation(Dependencies.Robolectric)
-  testImplementation(Dependencies.Truth)
+//  testImplementation(Dependencies.JUnit)
+//  testImplementation(Dependencies.Mockito)
+//  testImplementation(Dependencies.Robolectric)
+//  testImplementation(Dependencies.Truth)
 
-  androidTestImplementation(Dependencies.InstrumentationTests.Core)
-  androidTestImplementation(Dependencies.InstrumentationTests.Espresso)
-  androidTestImplementation(Dependencies.InstrumentationTests.Rules)
-  androidTestImplementation(Dependencies.InstrumentationTests.Runner)
-  androidTestImplementation(Dependencies.Truth)
-  androidTestUtil(Dependencies.InstrumentationTests.Orchestrator)
+//  androidTestImplementation(Dependencies.InstrumentationTests.Core)
+//  androidTestImplementation(Dependencies.InstrumentationTests.Espresso)
+//  androidTestImplementation(Dependencies.InstrumentationTests.Rules)
+//  androidTestImplementation(Dependencies.InstrumentationTests.Runner)
+//  androidTestImplementation(Dependencies.Truth)
+//  androidTestUtil(Dependencies.InstrumentationTests.Orchestrator)
 }
